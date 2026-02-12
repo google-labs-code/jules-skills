@@ -1,6 +1,6 @@
 # Architecture: Automate GitHub Issues
 
-This document describes the 5-phase pipeline used by the `automate-github-issues` skill.
+This document describes the 5-phase pipeline that gets installed into your repository.
 
 ## Pipeline Overview
 
@@ -14,7 +14,7 @@ flowchart LR
 
 ## Phase 1: Analyze
 
-**Script:** `scripts/fleet-analyze.ts`
+**Script:** `fleet-analyze.ts`
 
 Fetches all open GitHub issues using the Octokit API with ETag caching. Formats them into a structured markdown document that includes:
 - Issue number, title, author, labels
@@ -25,8 +25,8 @@ Fetches all open GitHub issues using the Octokit API with ETag caching. Formats 
 
 ## Phase 2: Plan
 
-**Script:** `scripts/fleet-plan.ts`
-**Prompt:** `scripts/prompts/analyze-issues.ts`
+**Script:** `fleet-plan.ts`
+**Prompt:** `prompts/analyze-issues.ts`
 
 Creates a Jules session that performs deep code-level triage:
 
@@ -39,7 +39,7 @@ Creates a Jules session that performs deep code-level triage:
 
 ## Phase 3: Validate
 
-**Script:** `scripts/fleet-dispatch.ts` (built in)
+**Script:** `fleet-dispatch.ts` (built in)
 
 Before dispatching, the orchestrator validates ownership:
 - Builds a map of every file claimed by each task (source, new, and test files)
@@ -48,7 +48,7 @@ Before dispatching, the orchestrator validates ownership:
 
 ## Phase 4: Dispatch
 
-**Script:** `scripts/fleet-dispatch.ts`
+**Script:** `fleet-dispatch.ts`
 
 Spawns parallel Jules sessions using `jules.all()`:
 - Each task gets its own session with a self-contained, code-rich prompt
@@ -57,27 +57,28 @@ Spawns parallel Jules sessions using `jules.all()`:
 
 ## Phase 5: Merge
 
-**Script:** `scripts/merge-fleet.ts`
+**Script:** `fleet-merge.ts` *(local)* / `fleet-merge.yml` *(GitHub Action)*
 
 Processes fleet PRs sequentially in risk order (lowest first):
 
-1. Find open PRs matching session IDs
-2. For each PR (after the first): update branch from base
+1. Find open PRs matching session IDs (local) or Jules author (GitHub Action)
+2. For each PR: update branch from base
 3. Wait for CI to pass (polling every 30s, timeout after 10min)
 4. Squash-merge
 5. Move to the next PR
 
-If a merge conflict is detected during branch update, the script stops and reports the PR URL for human intervention.
+If a merge conflict is detected during branch update, the process stops and reports the PR URL for human intervention.
 
-## File Structure
+## File Structure (after setup)
 
 ```text
-scripts/
+scripts/fleet/
 ├── fleet-analyze.ts             # Fetches open issues as markdown
 ├── fleet-plan.ts                # Creates the planning session
 ├── fleet-dispatch.ts            # Validates ownership + dispatches Jules sessions
-├── fleet-merge.ts               # Sequential PR merge with CI wait
+├── fleet-merge.ts               # Sequential PR merge with CI wait (local use)
 ├── types.ts                     # Shared TypeScript types
+├── package.json                 # Fleet script dependencies
 ├── prompts/
 │   ├── analyze-issues.ts        # The 4-phase analysis prompt
 │   └── bootstrap.ts             # Wraps prompt for scheduled sessions
@@ -85,15 +86,15 @@ scripts/
     ├── git.ts                   # Git remote parsing (owner/repo/branch)
     ├── issues.ts                # GitHub issue fetching with cache
     ├── markdown.ts              # Issue → markdown formatting
-    ├── run.ts                   # Entry point for issue fetching
     └── cache-plugin.ts          # Octokit ETag cache plugin
 ```
 
 ## Scheduled Automation
 
-The `fleet-dispatch.yml` workflow runs the full pipeline on a cron schedule:
+The `fleet-dispatch.yml` workflow runs the planning phase on a cron schedule:
 
-1. A single "bootstrap" Jules session is created
-2. The session's prompt instructs it to fetch issues, analyze them, and run the orchestrator
-3. This creates N parallel Jules sessions, each producing a PR
-4. The `fleet-merge.yml` workflow triggers on PR open events and merges them sequentially
+1. Installs dependencies from `scripts/fleet/package.json`
+2. Runs `fleet-plan.ts` to create a Jules planning session
+3. The session fetches issues, analyzes them, and dispatches N parallel agents
+4. Each agent produces a PR
+5. The `fleet-merge.yml` workflow triggers on PR open events and merges them sequentially using `gh` CLI

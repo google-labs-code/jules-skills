@@ -1,6 +1,6 @@
 ---
 name: automate-github-issues
-description: Analyze open GitHub issues, plan implementation tasks, and dispatch parallel Jules coding sessions to fix them
+description: Set up automated GitHub issue triage and resolution using parallel Jules coding agents
 allowed-tools:
   - "Bash"
   - "Read"
@@ -9,110 +9,128 @@ allowed-tools:
 
 # Automate GitHub Issues with Jules
 
-You are a fleet orchestrator for automated GitHub issue resolution using the Jules SDK. Your job is to analyze open issues, plan code-level fixes, and dispatch parallel coding agents.
+You are setting up a repository to automatically analyze open GitHub issues, plan implementation tasks, and dispatch parallel Jules coding agents to fix them.
 
-## Overview
+## What You're Setting Up
 
-This skill automates the entire lifecycle of GitHub issue resolution: fetch issues → analyze root causes → plan tasks → validate ownership → dispatch Jules sessions → sequential merge. It runs as a scheduled pipeline or on-demand via GitHub Actions.
+A 5-phase automated pipeline that runs via GitHub Actions (or locally):
 
-## Prerequisites
+1. **Analyze** — Fetch open issues and format as structured markdown
+2. **Plan** — A Jules session performs deep code-level triage and produces self-contained task prompts
+3. **Validate** — Verify no two tasks modify the same file (prevents merge conflicts)
+4. **Dispatch** — Spawn parallel Jules sessions, one per task
+5. **Merge** — Sequential PR merge with CI validation
 
-- [Bun](https://bun.sh) runtime installed
-- `JULES_API_KEY` environment variable set
-- `GITHUB_TOKEN` environment variable set (with repo access)
-- Repository must have a `.git` directory (used for root detection and repo identification)
+## Setup Steps
 
-## Setup
+### Step 1: Copy fleet scripts to the repository
 
-If this is a fresh install, run the setup script:
+Copy the entire `scripts/` directory from this skill into the target repository at `scripts/fleet/`:
 
-```bash
-bash scripts/setup.sh
+```
+Target structure:
+scripts/fleet/
+├── fleet-analyze.ts
+├── fleet-plan.ts
+├── fleet-dispatch.ts
+├── fleet-merge.ts
+├── types.ts
+├── prompts/
+│   ├── analyze-issues.ts
+│   └── bootstrap.ts
+└── github/
+    ├── git.ts
+    ├── issues.ts
+    ├── markdown.ts
+    └── cache-plugin.ts
 ```
 
-This will:
-1. Check for (and optionally install) Bun
-2. Run `bun install` to fetch dependencies
-3. Scaffold a `.env` file from the template
+> **Important:** Preserve the directory structure exactly. The scripts use relative imports between files.
 
-## Workflow Overview
+### Step 2: Copy workflow templates
 
-The pipeline has 5 phases:
+Copy the workflow files from `assets/` to the repository's `.github/workflows/` directory:
 
-### Phase 1: Analyze
-Fetch all open GitHub issues and format them as structured markdown.
+- `assets/fleet-dispatch.yml` → `.github/workflows/fleet-dispatch.yml`
+- `assets/fleet-merge.yml` → `.github/workflows/fleet-merge.yml`
 
-```bash
-bun scripts/fleet-analyze.ts
+### Step 3: Create a package.json for the fleet scripts
+
+Create `scripts/fleet/package.json` with the required dependencies:
+
+```json
+{
+  "name": "fleet-scripts",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@google/jules-sdk": "^0.1.0",
+    "octokit": "^4.1.0",
+    "find-up": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0"
+  }
+}
 ```
 
-### Phase 2: Plan
-A Jules session performs deep code-level triage on the issues — diagnosing root causes at the file/function/line level, proposing concrete implementations, and producing self-contained task prompts.
+### Step 4: Create environment template
+
+Copy `assets/.env.example` to the repository root.
+
+### Step 5: Install dependencies
 
 ```bash
-bun scripts/fleet-plan.ts
+cd scripts/fleet && bun install
 ```
 
-### Phase 3: Validate
-Before dispatching, the orchestrator validates that no two tasks claim the same file. This prevents merge conflicts when parallel PRs land.
+### Step 6: Print next steps for the user
 
-### Phase 4: Dispatch
-The orchestrator spawns parallel Jules sessions — one per task — each receiving a code-rich, self-contained prompt with the exact files to modify, before/after diffs, and acceptance criteria.
+Tell the user they need to:
+1. Add `JULES_API_KEY` as a GitHub repository secret (Settings → Secrets → Actions)
+2. `GITHUB_TOKEN` is provided automatically by GitHub Actions
+3. Customize the cron schedule in `.github/workflows/fleet-dispatch.yml` (default: daily 6am UTC)
+4. Commit all generated files
+
+## Manual Usage
+
+After setup, the user can run the pipeline locally:
 
 ```bash
-bun scripts/fleet-dispatch.ts
+cd scripts/fleet
+
+# Fetch open issues
+bun fleet-analyze.ts
+
+# Plan tasks (creates a Jules planning session)
+JULES_API_KEY=<key> bun fleet-plan.ts
+
+# Dispatch parallel agents
+JULES_API_KEY=<key> bun fleet-dispatch.ts
+
+# Merge PRs sequentially
+GITHUB_TOKEN=<token> bun fleet-merge.ts
 ```
-
-### Phase 5: Merge
-After all sessions complete and create PRs, the merge script processes them sequentially in risk order:
-1. Update each PR branch from the base branch
-2. Wait for CI to pass
-3. Squash-merge
-4. Move to the next PR
-
-```bash
-bun scripts/fleet-merge.ts
-```
-
-## Execution Steps
-
-### Automated (GitHub Actions)
-
-Copy the workflow templates from `assets/` to your `.github/workflows/` directory:
-
-- `fleet-dispatch.yml` — Runs on a cron schedule (default: daily 6am UTC) or manual trigger
-- `fleet-merge.yml` — Triggered when Jules opens PRs, merges them sequentially
-
-### Manual (Local)
-
-1. **Fetch issues**: `bun scripts/fleet-analyze.ts`
-2. **Plan tasks**: `bun scripts/fleet-plan.ts`
-3. **Dispatch agents**: `bun scripts/fleet-dispatch.ts`
-4. **Merge PRs**: `bun scripts/fleet-merge.ts`
 
 ## Customization
 
 ### Prompt Tuning
-The analysis prompt in `scripts/prompts/analyze-issues.ts` controls how deeply issues are investigated. You can adjust:
+The analysis prompt in `scripts/fleet/prompts/analyze-issues.ts` controls how deeply issues are investigated. Users can adjust:
 - Root cause analysis depth
 - Solution implementation detail level
 - Merge conflict avoidance rules
 - File ownership constraints
 
-### Bootstrap Prompt
-The `scripts/prompts/bootstrap.ts` wraps the analysis into a self-executing prompt for scheduled sessions. Modify this to change the end-to-end automation behavior.
-
 ### Issue Filtering
-Edit `scripts/github/issues.ts` to filter issues by label, milestone, or state.
+Edit `scripts/fleet/github/issues.ts` to filter issues by label, milestone, or state.
 
 ## Resource References
 
 - [Architecture Overview](resources/architecture.md) — Detailed explanation of the 5-phase pipeline
-- [GitHub Actions Templates](assets/) — Ready-to-use workflow files
 
 ## Troubleshooting
 
-- **"Unable to parse git remote URL"**: Ensure you have a valid GitHub remote. Run `git remote get-url origin` to verify.
-- **Ownership conflict errors**: Two tasks claim the same file. The analysis prompt should merge them, but you may need to manually adjust the task JSON.
-- **CI timeout during merge**: The merge script waits up to 10 minutes per PR. Increase `maxWaitMs` in `merge-fleet.ts` if your CI takes longer.
-- **Bun not found**: Run `bash scripts/setup.sh` or install Bun manually: `curl -fsSL https://bun.sh/install | bash`
+- **"Unable to parse git remote URL"**: Ensure the repo has a valid GitHub remote (`git remote get-url origin`)
+- **Ownership conflict errors**: Two tasks claim the same file. Adjust the task JSON or merge them manually.
+- **CI timeout during merge**: Increase `maxWaitMs` in `fleet-merge.ts` (default: 10 minutes)
+- **Bun not found**: Install Bun: `curl -fsSL https://bun.sh/install | bash`

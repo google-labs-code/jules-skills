@@ -4,10 +4,10 @@
   "type": "module",
   "scripts": {
     "setup": "bash scripts/setup.sh",
-    "analyze": "bun scripts/fleet-analyze.ts",
-    "plan": "bun scripts/fleet-plan.ts",
-    "dispatch": "bun scripts/fleet-dispatch.ts",
-    "merge": "bun scripts/fleet-merge.ts"
+    "analyze": "bun run fleet-analyze.ts",
+    "plan": "bun run fleet-plan.ts",
+    "dispatch": "bun run fleet-dispatch.ts",
+    "merge": "bun run fleet-merge.ts"
   },
   "dependencies": {
     "@google/jules-sdk": "^0.1.0",

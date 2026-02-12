@@ -309,10 +309,10 @@ Issues that require changes outside this repository (backend API, infrastructure
 
 ## Phase 4: Dispatch
 
-After you have written both \`.fleet/${YYYY_MM_DD}/issue_tasks.md\` and \`.fleet/${YYYY_MM_DD}/issue_tasks.json\`, run the orchestrator to spawn parallel Jules sessions for each task:
+After you have written both \`.fleet/${YYYY_MM_DD}/issue_tasks.md\` and \`.fleet/${YYYY_MM_DD}/issue_tasks.json\`, run the dispatcher to spawn parallel Jules sessions for each task:
 
 \`\`\`bash
-bun scripts/fleet-dispatch.ts
+bun run scripts/fleet/fleet-dispatch.ts
 \`\`\`
 
 This script reads the \`tasks\` array from the JSON file, creates a Jules session for each task using its \`prompt\` field, and logs the resulting session IDs. **Do not skip this step** — the analysis is only complete once the sub-tasks have been dispatched.`;
