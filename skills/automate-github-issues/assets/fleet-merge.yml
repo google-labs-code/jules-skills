@@ -1,0 +1,128 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# .github/workflows/fleet-merge.yml
+name: Fleet Sequential Merge
+
+on:
+  # Trigger when a Jules-created PR is opened
+  pull_request:
+    types: [opened]
+
+  # Allow manual trigger (e.g., when all PRs are ready)
+  workflow_dispatch:
+
+# Path to the installed skill (relative to repo root)
+# Adjust if you installed the skill to a different location.
+env:
+  SKILL_DIR: .agent/skills/automate-github-issues
+
+concurrency:
+  group: fleet-merge
+  cancel-in-progress: false
+
+jobs:
+  sequential-merge:
+    # Only run for Jules-authored PRs or manual triggers
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.user.login == 'google-labs-jules' ||
+      endsWith(github.event.pull_request.user.login, '[bot]')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.SKILL_DIR }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: "1.3.1"
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Determine fleet date
+        id: fleet-date
+        working-directory: .
+        run: |
+          # Use today's date in YYYY_MM_DD format
+          FLEET_DATE=$(date +%Y_%m_%d)
+          echo "date=$FLEET_DATE" >> $GITHUB_OUTPUT
+
+          # Check if session mapping exists
+          SESSIONS_FILE=".fleet/${FLEET_DATE}/sessions.json"
+          if [ ! -f "$SESSIONS_FILE" ]; then
+            echo "No sessions.json found for ${FLEET_DATE}. Checking for recent fleet runs..."
+            # Find the most recent .fleet directory with sessions.json
+            LATEST=$(ls -td .fleet/*/sessions.json 2>/dev/null | head -1)
+            if [ -n "$LATEST" ]; then
+              FLEET_DATE=$(basename $(dirname "$LATEST"))
+              echo "date=$FLEET_DATE" >> $GITHUB_OUTPUT
+              echo "Found sessions at .fleet/${FLEET_DATE}/sessions.json"
+            else
+              echo "No fleet sessions found. Exiting."
+              exit 0
+            fi
+          fi
+
+      - name: Wait for all fleet PRs
+        working-directory: .
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FLEET_DATE="${{ steps.fleet-date.outputs.date }}"
+          TASKS_FILE=".fleet/${FLEET_DATE}/issue_tasks.json"
+          SESSIONS_FILE=".fleet/${FLEET_DATE}/sessions.json"
+
+          EXPECTED_COUNT=$(cat "$TASKS_FILE" | bun -e "
+            const data = JSON.parse(await Bun.stdin.text());
+            console.log(data.tasks.length);
+          ")
+
+          echo "Expecting ${EXPECTED_COUNT} fleet PRs..."
+
+          # Poll for up to 2 hours (Jules sessions can take a while)
+          for i in $(seq 1 24); do
+            OPEN_PRS=$(gh pr list --json number,headRefName --state open | bun -e "
+              const prs = JSON.parse(await Bun.stdin.text());
+              const sessions = JSON.parse(await Bun.file('${SESSIONS_FILE}').text());
+              const sessionIds = sessions.map(s => s.sessionId);
+              const matching = prs.filter(pr => sessionIds.some(id => pr.headRefName.includes(id)));
+              console.log(matching.length);
+            ")
+
+            echo "Found ${OPEN_PRS}/${EXPECTED_COUNT} fleet PRs (attempt ${i}/24)"
+
+            if [ "$OPEN_PRS" -ge "$EXPECTED_COUNT" ]; then
+              echo "All fleet PRs are open. Proceeding to merge."
+              break
+            fi
+
+            if [ "$i" -eq 24 ]; then
+              echo "⏰ Timeout waiting for fleet PRs. Only ${OPEN_PRS}/${EXPECTED_COUNT} found."
+              exit 1
+            fi
+
+            echo "Waiting 5 minutes..."
+            sleep 300
+          done
+
+      - name: Sequential merge
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FLEET_BASE_BRANCH: ${{ github.event.pull_request.base.ref || 'main' }}
+        run: bun scripts/fleet-merge.ts

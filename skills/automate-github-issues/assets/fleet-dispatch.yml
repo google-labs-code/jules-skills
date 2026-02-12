@@ -1,0 +1,97 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# .github/workflows/fleet-dispatch.yml
+name: Fleet Dispatch
+
+on:
+  schedule:
+    # Runs daily at 6am UTC (customize as needed)
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      print_prompt:
+        description: "Print the bootstrap prompt instead of dispatching"
+        type: boolean
+        default: false
+      base_branch:
+        description: "Base branch for Jules sessions"
+        type: string
+        default: "main"
+
+# Path to the installed skill (relative to repo root)
+# Adjust if you installed the skill to a different location.
+env:
+  SKILL_DIR: .agent/skills/automate-github-issues
+
+concurrency:
+  group: fleet-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.SKILL_DIR }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: "1.3.1"
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Print bootstrap prompt
+        if: ${{ inputs.print_prompt == true }}
+        run: |
+          bun -e "
+            import { bootstrapPrompt } from './scripts/prompts/bootstrap.js';
+            console.log(await bootstrapPrompt());
+          "
+
+      - name: Dispatch fleet (scheduled Jules session)
+        if: ${{ inputs.print_prompt != true }}
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          FLEET_BASE_BRANCH: ${{ inputs.base_branch || 'main' }}
+        run: |
+          bun -e "
+            import { jules } from '@google/jules-sdk';
+            import { bootstrapPrompt } from './scripts/prompts/bootstrap.js';
+
+            const session = await jules.session({
+              prompt: await bootstrapPrompt(),
+              source: {
+                github: '${{ github.repository }}',
+                baseBranch: process.env.FLEET_BASE_BRANCH ?? 'main',
+              },
+              autoPr: true,
+            });
+
+            console.log('Fleet planner session started:', session.id);
+          "
+
+      - name: Commit fleet artifacts
+        if: ${{ inputs.print_prompt != true }}
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .fleet/
+          git diff --cached --quiet || git commit -m "chore: fleet dispatch $(date +%Y_%m_%d)" && git push

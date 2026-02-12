@@ -1,0 +1,7 @@
+dist
+node_modules
+gen
+.env
+.fleet/
+bun.lockb
+*.log
