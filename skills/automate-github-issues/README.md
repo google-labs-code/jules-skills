@@ -9,7 +9,7 @@ npx skills add google-labs-code/jules-skills --skill automate-github-issues --gl
 ## Example Prompt
 
 ```text
-Analyze the open GitHub issues in this repository, identify root causes, and dispatch parallel Jules sessions to implement fixes.
+Set up this GitHub repository to automate issue fixes to Jules.
 ```
 
 ## Skill Structure
