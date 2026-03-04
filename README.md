@@ -39,6 +39,8 @@ skills/[skill-name]/
 ## Adding New Skills
 All new skills need to follow the file structure above to implement the Agent Skills open standard.
 
+For detailed contribution guidelines, please see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ### Great candidates for new skills
 * **Issue Triage**: Skills that analyze issues and dispatch parallel coding agents.
 * **Code Review**: Skills that automate code review using Jules sessions.
