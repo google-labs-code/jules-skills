@@ -36,6 +36,10 @@ skills/[skill-name]/
 └── README.md          — User-facing documentation
 ```
 
+## Architecture
+
+If you are a new contributor or want to understand how the system manages parallel tasks, safety, and orchestration without creating merge conflicts, please read our [Centralized Architectural Guide](ARCHITECTURE.md).
+
 ## Adding New Skills
 All new skills need to follow the file structure above to implement the Agent Skills open standard.
 
